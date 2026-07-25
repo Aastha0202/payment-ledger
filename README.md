@@ -1,2 +1,1 @@
-# Payment Ledger — Distributed double-entry ledger 
-  with event sourcing
+# Payment Ledger — Distributed double-entry ledger with event sourcing
