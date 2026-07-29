@@ -34,6 +34,7 @@ public class TransferSaga {
     private BigDecimal amount;
 
     @Column(name = "currency", length = 3, nullable = false)
+    @Builder.Default
     private String currency = "INR";
 
     @Enumerated(EnumType.STRING)
@@ -42,6 +43,7 @@ public class TransferSaga {
     private TransferSagaStatus status = TransferSagaStatus.INITIATED;
 
     @Column(name = "retry_count", nullable = false)
+    @Builder.Default
     private Integer retryCount = 0;
 
     @Column(name = "failure_reason", length = 255)

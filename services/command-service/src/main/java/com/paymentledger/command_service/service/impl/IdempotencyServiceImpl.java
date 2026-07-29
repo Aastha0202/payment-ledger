@@ -25,4 +25,15 @@ public class IdempotencyServiceImpl implements IdempotencyService {
         // Implement logic to store the idempotency key and response in the database
         redisTemplate.opsForValue().set(idempotencyKey, response, 24, TimeUnit.HOURS);
     }
+
+    @Override
+    public void storeTemporary(String idempotencyKey, String response) {
+        // Implement logic to store the idempotency key and response in the database
+        redisTemplate.opsForValue().set(idempotencyKey, response, 60, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public String getCachedResponse(String idempotencyKey) {
+        return redisTemplate.opsForValue().get(idempotencyKey);
+    }
 }

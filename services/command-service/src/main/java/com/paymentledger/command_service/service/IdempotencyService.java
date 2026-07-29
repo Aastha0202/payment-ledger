@@ -1,7 +1,5 @@
 package com.paymentledger.command_service.service;
 
-import org.springframework.stereotype.Service;
-
 
 public interface IdempotencyService {
 
@@ -20,6 +18,10 @@ public interface IdempotencyService {
      * @param response the response to store
      */
     void store(String idempotencyKey, String response);
+
+    void storeTemporary(String idempotencyKey, String response);
+
+    String getCachedResponse(String idempotencyKey);
 
 
 }

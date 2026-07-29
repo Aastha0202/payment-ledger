@@ -31,14 +31,17 @@ public class Account {
     private String accountType;
 
     @Column(name = "balance", precision = 19, scale = 4, nullable = false)
-    private BigDecimal balance;
+    @Builder.Default
+    private BigDecimal balance = BigDecimal.ZERO;
 
     @Column(name = "currency", nullable = false, length = 3)
-    private String currency;
+    @Builder.Default
+    private String currency = "INR";
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private AccountStatus status;
+    @Builder.Default
+    private AccountStatus status = AccountStatus.ACTIVE;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

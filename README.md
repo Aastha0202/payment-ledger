@@ -697,5 +697,20 @@ payment-ledger/
 
 ---
 
+✅ Phase 2: Command service
+✅ Domain models (User, Account, JournalEntry,
+TransferSaga, Outbox)
+✅ Repository layer with custom query methods
+✅ Idempotency check with Redis (30s → 24h TTL)
+✅ POST /api/v1/users
+✅ POST /api/v1/accounts
+✅ POST /api/v1/transfers (SERIALIZABLE transaction)
+✅ JWT security (Spring Security configured)
+✅ Global exception handler (8 exception types)
+✅ 3 Testcontainers integration tests passing
+
+
 *Built with Java 21 · Spring Boot 4.1.0 · PostgreSQL 16 · Redis 7 · Kafka*
 *Target: Mastercard, Visa, Razorpay, PhonePe, and fintech engineering roles*
+
+

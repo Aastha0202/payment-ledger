@@ -4,12 +4,17 @@ import com.paymentledger.command_service.constants.OutboxStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "outbox")
+@Table(name = "outbox", indexes = {
+        @Index(name = "idx_outbox_status", columnList = "status"),
+        @Index(name = "idx_outbox_created_at", columnList = "created_at")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -28,8 +33,10 @@ public class Outbox {
     @Column(name = "event_type", length = 50, nullable = false)
     private String eventType;
 
+    // Native Hibernate 7.x JSON support
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
-    private String payload; // Using Jackson's JsonNode
+    private String payload;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -44,5 +51,6 @@ public class Outbox {
     private OutboxStatus status = OutboxStatus.PENDING;
 
     @Column(name = "retry_count", nullable = false)
+    @Builder.Default
     private Integer retryCount = 0;
 }
