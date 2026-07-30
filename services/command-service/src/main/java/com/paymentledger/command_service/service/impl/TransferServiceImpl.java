@@ -16,7 +16,6 @@ import com.paymentledger.command_service.entity.TransferSaga;
 import com.paymentledger.command_service.entity.User;
 import com.paymentledger.command_service.exception.AccountNotActiveException;
 import com.paymentledger.command_service.exception.AccountNotFoundException;
-import com.paymentledger.command_service.exception.DuplicateRequestException;
 import com.paymentledger.command_service.exception.InsufficientFundsException;
 import com.paymentledger.command_service.exception.JsonProcessingException;
 import com.paymentledger.command_service.exception.ServiceUnavailableException;
@@ -29,19 +28,16 @@ import com.paymentledger.command_service.repository.TransferSagaRepository;
 import com.paymentledger.command_service.repository.UserRepository;
 import com.paymentledger.command_service.service.IdempotencyService;
 import com.paymentledger.command_service.service.TransferService;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Isolation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
-import java.util.Optional;
 
 @Service
 @Slf4j

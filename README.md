@@ -709,6 +709,17 @@ TransferSaga, Outbox)
 ✅ Global exception handler (8 exception types)
 ✅ 3 Testcontainers integration tests passing
 
+✅ Phase 3: Kafka + Projections
+✅ Kafka + Zookeeper in Docker Compose
+✅ KafkaProducerConfig with exactly-once settings
+✅ OutboxRelayService — polls every 2s, batch 100
+✅ KafkaConsumerConfig with manual acknowledgment
+✅ TransferEventConsumer — dedup via consumed_events
+✅ GET /api/v1/accounts/{id}/balance
+✅ GET /api/v1/accounts/{id}/statement
+
+
+
 
 *Built with Java 21 · Spring Boot 4.1.0 · PostgreSQL 16 · Redis 7 · Kafka*
 *Target: Mastercard, Visa, Razorpay, PhonePe, and fintech engineering roles*

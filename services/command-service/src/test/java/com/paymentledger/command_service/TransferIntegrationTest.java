@@ -2,6 +2,7 @@ package com.paymentledger.command_service;
 
 import com.paymentledger.command_service.DTO.TransferRequest;
 import com.paymentledger.command_service.DTO.TransferResponse;
+import com.paymentledger.command_service.config.TestKafkaConfig;
 import com.paymentledger.command_service.constants.AccountStatus;
 import com.paymentledger.command_service.constants.EntryType;
 import com.paymentledger.command_service.constants.OutboxStatus;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -45,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment =
         SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+@Import(TestKafkaConfig.class)
 class TransferIntegrationTest {
 
     @Container
