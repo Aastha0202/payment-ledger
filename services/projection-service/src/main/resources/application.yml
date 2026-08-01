@@ -31,6 +31,18 @@ spring:
       value-deserializer: >-
         org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
+    producer:
+      key-serializer: >-
+        org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: >-
+        org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+    dlq:
+      group-id : projection-service-dlq
+
 
 server:
   port: 8082
@@ -44,3 +56,7 @@ app:
   kafka:
     topic:
         transfer-events: transfer-events
+        transfer-events-dlq: transfer-events-dlq
+    retry:
+      max-attempts: 3
+      backoff-delay: 1000

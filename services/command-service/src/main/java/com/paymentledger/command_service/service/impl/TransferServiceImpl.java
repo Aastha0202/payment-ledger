@@ -17,8 +17,8 @@ import com.paymentledger.command_service.entity.User;
 import com.paymentledger.command_service.exception.AccountNotActiveException;
 import com.paymentledger.command_service.exception.AccountNotFoundException;
 import com.paymentledger.command_service.exception.InsufficientFundsException;
-import com.paymentledger.command_service.exception.JsonProcessingException;
 import com.paymentledger.command_service.exception.ServiceUnavailableException;
+import com.paymentledger.command_service.exception.TransferFailedException;
 import com.paymentledger.command_service.exception.UserNotActiveException;
 import com.paymentledger.command_service.exception.UserNotFoundException;
 import com.paymentledger.command_service.repository.AccountRepository;
@@ -26,17 +26,19 @@ import com.paymentledger.command_service.repository.JournalEntryRepository;
 import com.paymentledger.command_service.repository.OutboxRepository;
 import com.paymentledger.command_service.repository.TransferSagaRepository;
 import com.paymentledger.command_service.repository.UserRepository;
+import com.paymentledger.command_service.saga.TransferSagaStateMachine;
 import com.paymentledger.command_service.service.IdempotencyService;
 import com.paymentledger.command_service.service.TransferService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
-import java.time.LocalDateTime;
 import java.util.Map;
 
 @Service
@@ -56,19 +58,25 @@ public class TransferServiceImpl implements TransferService {
     private JournalEntryRepository journalEntryRepository;
 
     @Autowired
-    private TransferSagaRepository transferSagaRepository;
-
-    @Autowired
     private OutboxRepository outboxRepository;
 
     private final ObjectMapper objectMapper;
+
+    @Autowired
+    private TransferSagaStateMachine transferSagaStateMachine;
+
+    @Autowired
+   private TransferSagaRepository sagaRepository;
+
+    @Lazy
+    @Autowired
+    private TransferServiceImpl self;
 
     public TransferServiceImpl(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
 
     @Override
-    @Transactional
     public CreateAccountResponse createAccount(CreateAccountRequest createAccountRequest) throws UserNotFoundException, UserNotActiveException {
         // Implementation of account creation logic
 
@@ -100,10 +108,10 @@ public class TransferServiceImpl implements TransferService {
     }
 
     @Override
-    @Transactional(isolation = Isolation.SERIALIZABLE)
     public TransferResponse transferFunds(TransferRequest request) {
 
         // Step 1: Redis idempotency check — OUTSIDE transaction
+        TransferSaga saga;
         try {
             TransferResponse cached =
                     checkAndStoreIdempotencyKey(request.getIdempotencyKey());
@@ -149,71 +157,44 @@ public class TransferServiceImpl implements TransferService {
                             + ", Required: " + request.getAmount());
         }
 
-        // Update cached balances
-        sender.setBalance(
-                sender.getBalance().subtract(request.getAmount()));
-        receiver.setBalance(
-                receiver.getBalance().add(request.getAmount()));
-        accountRepository.save(sender);
-        accountRepository.save(receiver);
+        saga = self.createTransferSaga(request);
 
-        // Create saga — source of truth for this transfer
-        TransferSaga saga = transferSagaRepository.save(
-                TransferSaga.builder()
-                        .senderId(request.getSenderAccountId())
-                        .receiverId(request.getReceiverAccountId())
-                        .amount(request.getAmount())
-                        .currency(request.getCurrency())
-                        .status(TransferSagaStatus.COMPLETED)
-                        .description(request.getDescription())
-                        .completedAt(LocalDateTime.now())
-                        .build());
-
-        // Create immutable journal entries
-        journalEntryRepository.save(JournalEntry.builder()
-                .accountId(request.getSenderAccountId())
-                .transferId(saga.getId())
-                .entryType(EntryType.DEBIT)
-                .amount(request.getAmount())
-                .currency(request.getCurrency())
-                .description(request.getDescription())
-                .referenceType("TRANSFER")
-                .referenceId(saga.getId())
-                .build());
-
-        journalEntryRepository.save(JournalEntry.builder()
-                .accountId(request.getReceiverAccountId())
-                .transferId(saga.getId())
-                .entryType(EntryType.CREDIT)
-                .amount(request.getAmount())
-                .currency(request.getCurrency())
-                .description(request.getDescription())
-                .referenceType("TRANSFER")
-                .referenceId(saga.getId())
-                .build());
-
-        // Write outbox event — same transaction guarantees consistency
-        String payload;
         try {
-            payload = objectMapper.writeValueAsString(Map.of(
-                    "transferId", saga.getId().toString(),
-                    "senderId",   saga.getSenderId().toString(),
-                    "receiverId", saga.getReceiverId().toString(),
-                    "amount",     saga.getAmount().toString(),
-                    "currency",   saga.getCurrency()
-            ));
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(
-                    "Failed to serialize outbox payload", e);
+            //create a new transfer saga with status INITIATED
+            saga = self.executeDebit(saga, sender, request);
+        }catch (Exception e) {
+            self.markSagaFailed(saga, "Debit failed: " + e.getMessage());
+            throw new TransferFailedException(
+                    "Failed to create transfer saga");
         }
 
-        outboxRepository.save(Outbox.builder()
-                .aggregateId(saga.getId())
-                .eventType("TransferCompleted")
-                .payload(payload)
-                .status(OutboxStatus.PENDING)
-                .retryCount(0)
-                .build());
+        try {
+           saga =  self.executeCredit(saga, receiver, request);
+        } catch (Exception e) {
+          self.compensateCredit(saga, sender, request);
+            throw new TransferFailedException(
+                    "Failed to execute credit operation");
+        }
+
+
+        boolean outboxPublished = false;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                self.publishOutBoxEvent(saga);
+                outboxPublished = true;
+                break;
+            } catch (Exception e) {
+                log.warn("Outbox publish attempt {}/3 failed " +
+                                "for saga {}: {}",
+                        attempt, saga.getId(), e.getMessage());
+            }
+        }
+
+        if (!outboxPublished) {
+            log.error("CRITICAL: Saga {} financially COMPLETED " +
+                    "but outbox event failed after 3 attempts. " +
+                    "Manual review required.", saga.getId());
+        }
 
         TransferResponse response = TransferResponse.builder()
                 .transactionId(saga.getId().toString())
@@ -247,7 +228,7 @@ public class TransferServiceImpl implements TransferService {
             try {
                 return objectMapper.readValue(
                         cached, TransferResponse.class);
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 log.warn("Could not deserialize cached response " +
                         "for key: {}. Will reprocess.", idempotencyKey, e);
                 return null;
@@ -257,4 +238,116 @@ public class TransferServiceImpl implements TransferService {
         return null;
     }
 
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public TransferSaga createTransferSaga(TransferRequest request) {
+        TransferSaga saga = TransferSaga.builder()
+                .senderId(request.getSenderAccountId())
+                .receiverId(request.getReceiverAccountId())
+                .amount(request.getAmount())
+                .currency(request.getCurrency())
+                .status(TransferSagaStatus.INITIATED)
+                .description(request.getDescription())
+                .build();
+
+       saga= sagaRepository.save(saga);
+        return saga;
+
+    }
+
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public TransferSaga executeDebit(TransferSaga saga, Account sender, TransferRequest request) {
+        // Deduct amount from sender's account
+       saga= transferSagaStateMachine.transition(saga, TransferSagaStatus.DEBIT_PENDING);
+        sender.setBalance(sender.getBalance().subtract(request.getAmount()));
+        accountRepository.save(sender);
+        // Create immutable journal entries
+        journalEntryRepository.save(JournalEntry.builder()
+                .accountId(request.getSenderAccountId())
+                .transferId(saga.getId())
+                .entryType(EntryType.DEBIT)
+                .amount(request.getAmount())
+                .currency(request.getCurrency())
+                .description(request.getDescription())
+                .referenceType("TRANSFER")
+                .referenceId(saga.getId())
+                .build());
+       saga= transferSagaStateMachine.transition(saga, TransferSagaStatus.DEBIT_DONE);
+        return saga;
+    }
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public TransferSaga executeCredit(TransferSaga saga, Account receiver, TransferRequest request) {
+        saga = transferSagaStateMachine.transition(saga, TransferSagaStatus.CREDIT_PENDING);
+        // Add amount to receiver's account
+        receiver.setBalance(receiver.getBalance().add(request.getAmount()));
+        accountRepository.save(receiver);
+        journalEntryRepository.save(JournalEntry.builder()
+                .accountId(request.getReceiverAccountId())
+                .transferId(saga.getId())
+                .entryType(EntryType.CREDIT)
+                .amount(request.getAmount())
+                .currency(request.getCurrency())
+                .description(request.getDescription())
+                .referenceType("TRANSFER")
+                .referenceId(saga.getId())
+                .build());
+        saga = transferSagaStateMachine.transition(saga, TransferSagaStatus.COMPLETED);
+
+        return saga;
+    }
+
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void markSagaFailed(TransferSaga saga, String reason) {
+        saga.setFailureReason(reason);
+       saga =  transferSagaStateMachine.transition(saga, TransferSagaStatus.FAILED);
+    }
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void compensateCredit(TransferSaga saga, Account sender, TransferRequest request) {
+        // Deduct amount from receiver's account
+        saga = transferSagaStateMachine.transition(saga, TransferSagaStatus.COMPENSATING);
+        sender.setBalance(sender.getBalance().add(request.getAmount()));
+        accountRepository.save(sender);
+        // Create immutable journal entries for compensation
+        journalEntryRepository.save(JournalEntry.builder()
+                .accountId(request.getSenderAccountId())
+                .transferId(saga.getId())
+                .entryType(EntryType.COMPENSATION)
+                .amount(request.getAmount())
+                .currency(request.getCurrency())
+                .description("Compensation: credit failed, returning funds to sender")
+                .referenceType("COMPENSATION")
+                .referenceId(saga.getId())
+                .build());
+        saga.setFailureReason("Credit step failed — compensation applied");
+        transferSagaStateMachine.transition(saga, TransferSagaStatus.FAILED);
+    }
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void publishOutBoxEvent(TransferSaga saga) {
+        // Write outbox event — same transaction guarantees consistency
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(Map.of(
+                    "transferId", saga.getId().toString(),
+                    "senderId",   saga.getSenderId().toString(),
+                    "receiverId", saga.getReceiverId().toString(),
+                    "amount",     saga.getAmount().toString(),
+                    "currency",   saga.getCurrency()
+            ));
+        }catch(JacksonException e) {
+            throw new RuntimeException(
+                    "Failed to serialize outbox payload", e);
+        }
+        outboxRepository.save(Outbox.builder()
+                .aggregateId(saga.getId())
+                .eventType("TransferCompleted")
+                .payload(payload)
+                .status(OutboxStatus.PENDING)
+                .retryCount(0)
+                .build());
+    }
 }
