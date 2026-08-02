@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -49,7 +50,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment =
-        SpringBootTest.WebEnvironment.RANDOM_PORT)
+        SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.main.allow-bean-definition-overriding=true")
 @Testcontainers
 @Import(TestKafkaConfig.class)
 class TransferIntegrationTest {
@@ -101,6 +103,7 @@ class TransferIntegrationTest {
     TransferSagaRepository transferSagaRepository;
 
     @Autowired
+     @Lazy
     TransferServiceImpl transferService;
 
     private UUID senderAccountId;
@@ -299,11 +302,26 @@ class TransferIntegrationTest {
                 .status(UserStatus.ACTIVE)
                 .build());
 
+        User receiverUser = userRepository.save(User.builder()
+                .name("Receiver User")
+                .email("receiver.comp@test.com")
+                .status(UserStatus.ACTIVE)
+                .build());
+
         Account senderAccount = accountRepository.save(
                 Account.builder()
                         .userId(senderUser.getId())
                         .accountType("SAVINGS")
                         .balance(initialBalance)
+                        .currency("INR")
+                        .status(AccountStatus.ACTIVE)
+                        .build());
+
+        Account receiverAccount = accountRepository.save(
+                Account.builder()
+                        .userId(receiverUser.getId())
+                        .accountType("SAVINGS")
+                        .balance(new BigDecimal("5000.00"))
                         .currency("INR")
                         .status(AccountStatus.ACTIVE)
                         .build());
@@ -317,7 +335,7 @@ class TransferIntegrationTest {
         TransferSaga saga = transferSagaRepository.save(
                 TransferSaga.builder()
                         .senderId(senderAccount.getId())
-                        .receiverId(UUID.randomUUID())
+                        .receiverId(receiverAccount.getId())
                         .amount(transferAmount)
                         .currency("INR")
                         .status(TransferSagaStatus.CREDIT_PENDING)
@@ -325,7 +343,7 @@ class TransferIntegrationTest {
 
         TransferRequest request = TransferRequest.builder()
                 .senderAccountId(senderAccount.getId())
-                .receiverAccountId(UUID.randomUUID())
+                .receiverAccountId(receiverAccount.getId())
                 .amount(transferAmount)
                 .currency("INR")
                 .description("Compensation test")
@@ -404,14 +422,14 @@ class TransferIntegrationTest {
                 .build();
 
         ResponseEntity<ErrorResponse> response = restTemplate.exchange(
-                "/api/v1/transfers",
+                baseUrl() + "/api/v1/transfers",
                 HttpMethod.POST,
                 new HttpEntity<>(request, headers),
                 ErrorResponse.class);
 
         // Assert correct error response
         assertThat(response.getStatusCode())
-                .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                .isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(response.getBody().getErrorCode())
                 .isEqualTo("INSUFFICIENT_FUNDS");
 
