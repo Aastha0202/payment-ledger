@@ -53,3 +53,6 @@ app:
   kafka:
     topic:
       transfer-events: transfer-events
+  reconciliation:
+      discrepancy-threshold: 100.00
+      cron: "0 0 0 * * *"
