@@ -40,6 +40,22 @@ spring:
       retries: 3
       properties:
         enable.idempotence: true
+        spring.instrumentation.kafka.enabled: true
+    consumer:
+      properties:
+        spring.instrumentation.kafka.enabled: true
+
+  management:
+    tracing:
+      sampling:
+        probability: 1.0
+    endpoints:
+      web:
+        exposure:
+          include: health,info,prometheus,metrics
+    metrics:
+      tags:
+        application: ${spring.application.name}
 
 server:
   port: 8081

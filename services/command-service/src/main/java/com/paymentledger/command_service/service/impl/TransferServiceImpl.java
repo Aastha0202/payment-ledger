@@ -21,6 +21,7 @@ import com.paymentledger.command_service.exception.ServiceUnavailableException;
 import com.paymentledger.command_service.exception.TransferFailedException;
 import com.paymentledger.command_service.exception.UserNotActiveException;
 import com.paymentledger.command_service.exception.UserNotFoundException;
+import com.paymentledger.command_service.metrics.TransferMetrics;
 import com.paymentledger.command_service.repository.AccountRepository;
 import com.paymentledger.command_service.repository.JournalEntryRepository;
 import com.paymentledger.command_service.repository.OutboxRepository;
@@ -71,6 +72,9 @@ public class TransferServiceImpl implements TransferService {
     @Lazy
     @Autowired
     private TransferServiceImpl self;
+
+    @Autowired
+    private TransferMetrics transferMetrics;
 
     public TransferServiceImpl(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -157,6 +161,8 @@ public class TransferServiceImpl implements TransferService {
                             + ", Required: " + request.getAmount());
         }
 
+        // At the start of transferFunds:
+        long startTime = System.currentTimeMillis();
         saga = self.createTransferSaga(request);
 
         try {
@@ -164,18 +170,29 @@ public class TransferServiceImpl implements TransferService {
             saga = self.executeDebit(saga, sender, request);
         }catch (Exception e) {
             self.markSagaFailed(saga, "Debit failed: " + e.getMessage());
+            // On compensation:
+            transferMetrics.recordCompensation();
+            transferMetrics.recordTransferFailure("credit_failed");
             throw new TransferFailedException(
                     "Failed to create transfer saga");
+
         }
 
         try {
            saga =  self.executeCredit(saga, receiver, request);
         } catch (Exception e) {
           self.compensateCredit(saga, sender, request);
+            // On compensation:
+            transferMetrics.recordCompensation();
+            transferMetrics.recordTransferFailure("credit_failed");
             throw new TransferFailedException(
                     "Failed to execute credit operation");
         }
 
+        // On success:
+        transferMetrics.recordTransferSuccess(request.getCurrency());
+        transferMetrics.recordTransferDuration(
+                System.currentTimeMillis() - startTime);
 
         boolean outboxPublished = false;
         for (int attempt = 1; attempt <= 3; attempt++) {

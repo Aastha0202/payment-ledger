@@ -3,6 +3,7 @@ package com.paymentledger.command_service.service.impl;
 import com.paymentledger.command_service.constants.AccountStatus;
 import com.paymentledger.command_service.entity.Account;
 import com.paymentledger.command_service.entity.ReconciliationFailure;
+import com.paymentledger.command_service.metrics.TransferMetrics;
 import com.paymentledger.command_service.repository.AccountReconciliationRepository;
 import com.paymentledger.command_service.repository.AccountRepository;
 import com.paymentledger.command_service.repository.ReconciliationFailureRepository;
@@ -42,6 +43,9 @@ public class ReconciliationServiceImpl implements ReconciliationService {
         @Lazy
         private ReconciliationServiceImpl self;
 
+        @Autowired
+        private TransferMetrics transferMetrics;
+
         @Override
         @Scheduled(cron = "${app.reconciliation.cron:0 0 0 * * *}")
         public void findAccountsWithBalanceMismatch() {
@@ -75,6 +79,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
             }
 
             long duration = System.currentTimeMillis() - startTime;
+            transferMetrics.recordReconciliationMismatch();
             log.info("Reconciliation complete. " +
                             "Mismatches: {}, Frozen: {}, Duration: {}ms",
                     mismatches.size(), frozenCount, duration);

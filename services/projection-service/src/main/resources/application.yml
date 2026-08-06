@@ -31,6 +31,8 @@ spring:
       value-deserializer: >-
         org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
+      properties:
+        spring.instrumentation.kafka.enabled: true
     producer:
       key-serializer: >-
         org.apache.kafka.common.serialization.StringSerializer
@@ -40,9 +42,21 @@ spring:
       retries: 3
       properties:
         enable.idempotence: true
+        spring.instrumentation.kafka.enabled: true
     dlq:
       group-id : projection-service-dlq
 
+  management:
+    tracing:
+      sampling:
+        probability: 1.0
+    endpoints:
+      web:
+        exposure:
+          include: health,info,prometheus,metrics
+    metrics:
+      tags:
+        application: ${spring.application.name}
 
 server:
   port: 8082

@@ -719,6 +719,18 @@ TransferSaga, Outbox)
 ✅ GET /api/v1/accounts/{id}/statement
 
 
+✅ Phase 5: Reconciliation + Observability
+✅ ReconciliationService — nightly @Scheduled job
+✅ Graduated response — log, record, freeze above threshold
+✅ ReconciliationFailure table — permanent audit record
+✅ Reconciliation integration test passing
+✅ CorrelationIdFilter — X-Correlation-ID on every request
+✅ logback-spring.xml — correlationId + traceId in every log
+✅ OpenTelemetry — distributed tracing across services
+✅ Prometheus metrics — /actuator/prometheus exposed
+✅ TransferMetrics — success/failure counters, duration timer,
+compensation counter, reconciliation mismatch counter
+
 
 
 *Built with Java 21 · Spring Boot 4.1.0 · PostgreSQL 16 · Redis 7 · Kafka*
